@@ -25,44 +25,17 @@ const (
 	// Environment variable key for the API user service key configuration.
 	APIUserServiceKeyEnvVarKey = "CLOUDFLARE_API_USER_SERVICE_KEY"
 
-	// Schema key for the API hostname configuration.
-	APIHostnameSchemaKey = "api_hostname"
-
-	// Environment variable key for the API hostname configuration.
-	APIHostnameEnvVarKey = "CLOUDFLARE_API_HOSTNAME"
-
-	// Default value for the API hostname.
-	APIHostnameDefault = "api.cloudflare.com"
-
-	// Schema key for the API base path configuration.
-	APIBasePathSchemaKey = "api_base_path"
-
-	// Environment variable key for the API base path configuration.
-	APIBasePathEnvVarKey = "CLOUDFLARE_API_BASE_PATH"
-
-	// Default value for the API base path.
-	APIBasePathDefault = "/client/v4"
-
 	// Schema key for the User Agent operator suffix.
 	UserAgentOperatorSuffixSchemaKey = "user_agent_operator_suffix"
 
 	// Environment variable key for the User Agent operator suffix.
 	UserAgentOperatorSuffixEnvVarKey = "CLOUDFLARE_USER_AGENT_OPERATOR_SUFFIX"
 
-	// Schema key for the retries configuration.
-	RetriesSchemaKey = "retries"
+	// Schema key for the account ID configuration.
+	AccountIDSchemaKey = "account_id"
 
-	// Environment variable key for the retries configuration.
-	RetriesEnvVarKey = "CLOUDFLARE_RETRIES"
-
-	// Default value for the retries.
-	RetriesDefault = "4"
-
-	// Schema key for the API Client Logging Schema.
-	APIClientLoggingSchemaKey = "api_client_logging"
-
-	// Environment variable key for the API client logging configuration.
-	APIClientLoggingEnvVarKey = "CLOUDFLARE_API_CLIENT_LOGGING"
+	// Schema description for `account_id` field.
+	AccountIDSchemaDescription = "The account identifier to target for the resource."
 
 	// Schema key for the zone ID configuration.
 	ZoneIDSchemaKey = "zone_id"
@@ -75,4 +48,10 @@ const (
 
 	// Schema description for all ID fields.
 	IDSchemaDescription = "The identifier of this resource."
+
+	// Schema key for the base URL field.
+	BaseURLSchemaKey = "base_url"
+
+	// Environment variable key for the client base URL.
+	BaseURLEnvVarKey = "CLOUDFLARE_BASE_URL"
 )
