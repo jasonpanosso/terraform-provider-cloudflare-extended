@@ -17,7 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/consts"
-	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/service/vectorize"
+	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/services/vectorize"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/utils"
 )
 

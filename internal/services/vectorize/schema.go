@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/MakeNowJust/heredoc/v2"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -18,7 +19,7 @@ import (
 func (r *VectorizeResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: heredoc.Doc(`
-			The [Cloud Connector Rules](add link to doc) resource allows you to create and manage cloud connector rules for a zone.
+			The [Vectorize](add link to doc) resource allows you to create and manage a Vectorize database.
 		`),
 		Version: 1,
 
@@ -57,17 +58,9 @@ func (r *VectorizeResource) Schema(ctx context.Context, req resource.SchemaReque
 								),
 							},
 						},
-						"enabled": schema.BoolAttribute{
-							Optional:            true,
-							MarkdownDescription: "Whether the headers rule is active.",
-						},
-						"expression": schema.StringAttribute{
-							Required:            true,
-							MarkdownDescription: "Criteria for an HTTP request to trigger the cloud connector rule. Uses the Firewall Rules expression language based on Wireshark display filters.",
-						},
 						"description": schema.StringAttribute{
 							Optional:            true,
-							MarkdownDescription: "Brief summary of the cloud connector rule and its intended use.",
+							MarkdownDescription: "Brief summary of the Vectorize database and its intended use.",
 						},
 					},
 					Blocks: map[string]schema.Block{
