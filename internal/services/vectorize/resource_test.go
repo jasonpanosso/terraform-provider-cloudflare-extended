@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	dimensions = 1068
+	dimensions = 512
 	metric     = "cosine"
 )
 
