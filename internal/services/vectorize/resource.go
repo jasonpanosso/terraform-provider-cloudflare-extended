@@ -2,22 +2,23 @@ package vectorize
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
+	"io"
+	"net/http"
 
 	"github.com/cloudflare/cloudflare-go/v3"
+	"github.com/cloudflare/cloudflare-go/v3/option"
 	"github.com/cloudflare/cloudflare-go/v3/vectorize"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/apijson"
+	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/customfield"
+	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/logging"
 )
 
-// TODO/FIXME: metadata indexes
-
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &VectorizeResource{}
-var _ resource.ResourceWithImportState = &VectorizeResource{}
+var _ resource.ResourceWithConfigure = (*VectorizeResource)(nil)
+var _ resource.ResourceWithModifyPlan = (*VectorizeResource)(nil)
 
 func NewResource() resource.Resource {
 	return &VectorizeResource{}
@@ -29,7 +30,7 @@ type VectorizeResource struct {
 }
 
 func (r *VectorizeResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_vectorize_database"
+	resp.TypeName = req.ProviderTypeName + "_vectorize_index"
 }
 
 func (r *VectorizeResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -58,27 +59,39 @@ func (r *VectorizeResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	metric, err := validateNewMetric(data.Metric.String())
+	res := new(http.Response)
+	env := VectorizeResultEnvelope{*data}
+	_, err := r.client.Vectorize.Indexes.New(
+		ctx,
+		vectorize.IndexNewParams{
+			AccountID: cloudflare.F(data.AccountID.ValueString()),
+			Name:      cloudflare.F(data.Name.ValueString()),
+			Config: cloudflare.F(
+				vectorize.IndexNewParamsConfigUnion(
+					vectorize.IndexNewParamsConfig{
+						Metric:     cloudflare.F(vectorize.IndexNewParamsConfigMetric(data.Metric.ValueString())),
+						Dimensions: cloudflare.F(data.Dimensions.ValueInt64()),
+					},
+				),
+			),
+			Description: cloudflare.F(data.Description.ValueString()),
+		},
+		option.WithResponseBodyInto(&res),
+		option.WithMiddleware(logging.Middleware(ctx)),
+	)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to create vectorize database", err.Error())
+		resp.Diagnostics.AddError("failed to make http request", err.Error())
 		return
 	}
-
-	database, err := r.client.Vectorize.Indexes.New(ctx, vectorize.IndexNewParams{
-		AccountID: cloudflare.String(data.AccountID.String()),
-		Name:      cloudflare.String(data.Name.String()),
-		Config: cloudflare.F(vectorize.IndexNewParamsConfigUnion(vectorize.IndexNewParamsConfig{
-			Metric:     cloudflare.F(metric),
-			Dimensions: cloudflare.Int(data.Dimensions.ValueInt64()),
-		})),
-		Description: cloudflare.F(data.Description.String()),
-	})
+	bytes, _ := io.ReadAll(res.Body)
+	err = apijson.UnmarshalComputed(bytes, &env)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to create vectorize database", err.Error())
+		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
 		return
 	}
+	data = &env.Result
+	data.ID = data.Name
 
-	data.ID = types.StringValue(database.Name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -91,16 +104,57 @@ func (r *VectorizeResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	database, err := r.client.Vectorize.Indexes.Get(ctx, data.Name.String(), vectorize.IndexGetParams{AccountID: cloudflare.F(data.AccountID.String())})
+	res := new(http.Response)
+	env := VectorizeResultEnvelope{*data}
+	_, err := r.client.Vectorize.Indexes.Get(
+		ctx,
+		data.Name.ValueString(),
+		vectorize.IndexGetParams{
+			AccountID: cloudflare.F(data.AccountID.ValueString()),
+		},
+		option.WithResponseBodyInto(&res),
+		option.WithMiddleware(logging.Middleware(ctx)),
+	)
 	if err != nil {
-		resp.Diagnostics.AddError("failed reading vectorize database", err.Error())
+		resp.Diagnostics.AddError("failed to make http request", err.Error())
+		return
+	}
+	bytes, _ := io.ReadAll(res.Body)
+	err = apijson.UnmarshalComputed(bytes, &env)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
+		return
+	}
+	data = &env.Result
+
+	var metadataIndexRes *vectorize.IndexMetadataIndexListResponse
+	metadataIndexRes, err = r.client.Vectorize.Indexes.MetadataIndex.List(
+		ctx,
+		data.Name.ValueString(),
+		vectorize.IndexMetadataIndexListParams{
+			AccountID: cloudflare.F(data.AccountID.ValueString()),
+		},
+		option.WithMiddleware(logging.Middleware(ctx)),
+	)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to read metadata indexes", err.Error())
 		return
 	}
 
-	data.ID = types.StringValue(database.Name)
-	data.Name = types.StringValue(database.Name)
-	data.Metric = types.StringValue(string(database.Config.Metric))
-	data.Dimensions = types.Int64Value(database.Config.Dimensions)
+	var metadataIndexes []VectorizeMetadataIndexModel
+	for _, mi := range metadataIndexRes.MetadataIndexes {
+		metadataIndexes = append(metadataIndexes, VectorizeMetadataIndexModel{
+			PropertyName: types.StringValue(mi.PropertyName),
+			IndexType:    types.StringValue(string(mi.IndexType)),
+		})
+
+	}
+
+	result, diags := customfield.NewObjectSet(ctx, metadataIndexes)
+	resp.Diagnostics.Append(diags...)
+
+	data.MetadataIndexes = result
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -112,66 +166,34 @@ func (r *VectorizeResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	resp.Diagnostics.AddError("failed to update Vectorize database", "Not implemented")
+	resp.Diagnostics.AddError("failed to update Vectorize index", "Not implemented")
 }
 
 func (r *VectorizeResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data *VectorizeModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	_, err := r.client.Vectorize.Indexes.Delete(ctx, data.ID.String(),
-		vectorize.IndexDeleteParams{AccountID: cloudflare.F(data.AccountID.String())})
-
+	_, err := r.client.Vectorize.Indexes.Delete(
+		ctx,
+		data.ID.ValueString(),
+		vectorize.IndexDeleteParams{
+			AccountID: cloudflare.F(data.AccountID.ValueString()),
+		},
+		option.WithMiddleware(logging.Middleware(ctx)),
+	)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to delete Vectorize database", err.Error())
+		resp.Diagnostics.AddError("failed to make http request", err.Error())
 		return
 	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *VectorizeResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	idparts := strings.Split(req.ID, "/")
-	if len(idparts) != 2 {
-		resp.Diagnostics.AddError("error importing Vectorize database", "invalid ID specified. Please specify the ID as \"account_id/name\"")
-		return
-	}
-	resp.Diagnostics.Append(resp.State.SetAttribute(
-		ctx, path.Root("account_id"), idparts[0],
-	)...)
-	resp.Diagnostics.Append(resp.State.SetAttribute(
-		ctx, path.Root("id"), idparts[1],
-	)...)
-}
+func (r *VectorizeResource) ModifyPlan(_ context.Context, _ resource.ModifyPlanRequest, _ *resource.ModifyPlanResponse) {
 
-func validateMetric(input string) (vectorize.IndexDimensionConfigurationMetric, error) {
-	var metric vectorize.IndexDimensionConfigurationMetric
-	if input == string(vectorize.IndexDimensionConfigurationMetricCosine) {
-		metric = vectorize.IndexDimensionConfigurationMetricCosine
-	} else if input == string(vectorize.IndexDimensionConfigurationMetricEuclidean) {
-		metric = vectorize.IndexDimensionConfigurationMetricEuclidean
-	} else if input == string(vectorize.IndexDimensionConfigurationMetricDOTProduct) {
-		metric = vectorize.IndexDimensionConfigurationMetricDOTProduct
-	} else {
-		return "", errors.New("variable Metric must be 'cosine', 'euclidean', or 'dot-product'")
-	}
-
-	return metric, nil
-}
-
-func validateNewMetric(input string) (vectorize.IndexNewParamsConfigMetric, error) {
-	var metric vectorize.IndexNewParamsConfigMetric
-	if input == string(vectorize.IndexNewParamsConfigMetricCosine) {
-		metric = vectorize.IndexNewParamsConfigMetricCosine
-	} else if input == string(vectorize.IndexNewParamsConfigMetricEuclidean) {
-		metric = vectorize.IndexNewParamsConfigMetricEuclidean
-	} else if input == string(vectorize.IndexNewParamsConfigMetricDOTProduct) {
-		metric = vectorize.IndexNewParamsConfigMetricDOTProduct
-	} else {
-		return "", errors.New("variable Metric must be 'cosine', 'euclidean', or 'dot-product'")
-	}
-
-	return metric, nil
 }

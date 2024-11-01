@@ -2,6 +2,7 @@ package acctest
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +34,7 @@ var (
 )
 
 var TestAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	"cloudflare": func() (tfprotov6.ProviderServer, error) {
+	"cloudflare-extended": func() (tfprotov6.ProviderServer, error) {
 		return providerserver.NewProtocol6(provider.New("dev")())(), nil
 	},
 }
@@ -220,8 +221,7 @@ func SharedV1Client() (*cfv1.API, error) {
 // sweeper functions.
 func SharedClient() *cloudflare.Client {
 	return cloudflare.NewClient(
-		option.WithAPIKey(os.Getenv("CLOUDFLARE_API_KEY")),
-		option.WithAPIEmail(os.Getenv("CLOUDFLARE_EMAIL")),
+		option.WithAPIToken(os.Getenv("CLOUDFLARE_API_TOKEN")),
 	)
 }
 
@@ -248,7 +248,7 @@ func LoadTestCase(filename string, parameters ...interface{}) string {
 	if err != nil {
 		return ""
 	}
-
+	log.Printf(fmt.Sprintf(string(f), parameters...))
 	return fmt.Sprintf(string(f), parameters...)
 }
 
