@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/mapvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -11,6 +12,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/customfield"
 )
 
@@ -20,9 +23,8 @@ func ResourceSchema(ctx context.Context) schema.Schema {
 	return schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description:   "ID of the Vectorize database, used in URLs and route configuration.",
-				Computed:      true,
-				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+				Description: "ID of the Vectorize database",
+				Computed:    true,
 			},
 			"account_id": schema.StringAttribute{
 				Description:   "Identifier.",
@@ -42,7 +44,9 @@ func ResourceSchema(ctx context.Context) schema.Schema {
 			},
 			"description": schema.StringAttribute{
 				Optional:            true,
+				Computed:            true,
 				MarkdownDescription: "Brief summary of the Vectorize database and its intended use.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplaceIfConfigured()},
 			},
 			"dimensions": schema.Int64Attribute{
 				Required:            true,
@@ -63,22 +67,14 @@ func ResourceSchema(ctx context.Context) schema.Schema {
 			"modified_on": schema.StringAttribute{
 				Computed: true,
 			},
-			"metadata_indexes": schema.SetNestedAttribute{
-				Description: "List of metadata indexes for the Vectorize database.",
-				Computed:    false,
+			"metadata_indexes": schema.MapAttribute{
+				Description: "Map of metadata index names to the attribute type",
+				ElementType: types.StringType,
+				CustomType:  customfield.NewMapType[basetypes.StringValue](ctx),
 				Optional:    true,
-				CustomType:  customfield.NewNestedObjectSetType[VectorizeMetadataIndexModel](ctx),
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"index_type": schema.StringAttribute{
-							Description: `Type of the indexed metadata property. One of "string", "number", or "boolean"`,
-							Required:    true,
-						},
-						"property_name": schema.StringAttribute{
-							Description: "Name of the indexed metadata property",
-							Required:    true,
-						},
-					},
+				Validators: []validator.Map{
+					mapvalidator.SizeAtMost(10),
+					mapvalidator.ValueStringsAre(stringvalidator.OneOf([]string{"string", "number", "boolean"}...)),
 				},
 			},
 		},

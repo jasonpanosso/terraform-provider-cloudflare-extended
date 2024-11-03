@@ -3,16 +3,12 @@ package vectorize
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 
 	"github.com/cloudflare/cloudflare-go/v3"
 	"github.com/cloudflare/cloudflare-go/v3/option"
 	"github.com/cloudflare/cloudflare-go/v3/vectorize"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/apijson"
-	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/customfield"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/logging"
 )
 
@@ -59,13 +55,12 @@ func (r *VectorizeResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	res := new(http.Response)
-	env := VectorizeResultEnvelope{*data}
-	_, err := r.client.Vectorize.Indexes.New(
+	newIndex, err := r.client.Vectorize.Indexes.New(
 		ctx,
 		vectorize.IndexNewParams{
-			AccountID: cloudflare.F(data.AccountID.ValueString()),
-			Name:      cloudflare.F(data.Name.ValueString()),
+			AccountID:   cloudflare.F(data.AccountID.ValueString()),
+			Name:        cloudflare.F(data.Name.ValueString()),
+			Description: cloudflare.F(data.Description.ValueString()),
 			Config: cloudflare.F(
 				vectorize.IndexNewParamsConfigUnion(
 					vectorize.IndexNewParamsConfig{
@@ -74,23 +69,43 @@ func (r *VectorizeResource) Create(ctx context.Context, req resource.CreateReque
 					},
 				),
 			),
-			Description: cloudflare.F(data.Description.ValueString()),
 		},
-		option.WithResponseBodyInto(&res),
 		option.WithMiddleware(logging.Middleware(ctx)),
 	)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to make http request", err.Error())
+		resp.Diagnostics.AddError("failed to create new vectorize index", err.Error())
 		return
 	}
-	bytes, _ := io.ReadAll(res.Body)
-	err = apijson.UnmarshalComputed(bytes, &env)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
+
+	data.ID = basetypes.NewStringValue(newIndex.Name)
+	data.Description = basetypes.NewStringValue(newIndex.Description)
+	data.CreatedOn = basetypes.NewStringValue(newIndex.CreatedOn.String())
+	data.ModifiedOn = basetypes.NewStringValue(newIndex.ModifiedOn.String())
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+
+	metadataIndexes := make(map[string]basetypes.StringValue)
+	diags := data.MetadataIndexes.ElementsAs(ctx, &metadataIndexes, false)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
-	data = &env.Result
-	data.ID = data.Name
+
+	for propertyName, indexType := range metadataIndexes {
+		_, err := r.client.Vectorize.Indexes.MetadataIndex.New(
+			ctx,
+			data.Name.ValueString(),
+			vectorize.IndexMetadataIndexNewParams{
+				AccountID:    cloudflare.F(data.AccountID.ValueString()),
+				PropertyName: cloudflare.F(propertyName),
+				IndexType:    cloudflare.F(vectorize.IndexMetadataIndexNewParamsIndexType(indexType.ValueString())),
+			},
+			option.WithMiddleware(logging.Middleware(ctx)),
+		)
+		if err != nil {
+			resp.Diagnostics.AddError("failed to create vectorize metadata index", err.Error())
+			return
+		}
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -99,74 +114,119 @@ func (r *VectorizeResource) Read(ctx context.Context, req resource.ReadRequest, 
 	var data *VectorizeModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	res := new(http.Response)
-	env := VectorizeResultEnvelope{*data}
-	_, err := r.client.Vectorize.Indexes.Get(
+	index, err := r.client.Vectorize.Indexes.Get(
 		ctx,
 		data.Name.ValueString(),
 		vectorize.IndexGetParams{
 			AccountID: cloudflare.F(data.AccountID.ValueString()),
 		},
-		option.WithResponseBodyInto(&res),
 		option.WithMiddleware(logging.Middleware(ctx)),
 	)
 	if err != nil {
-		resp.Diagnostics.AddError("failed to make http request", err.Error())
-		return
-	}
-	bytes, _ := io.ReadAll(res.Body)
-	err = apijson.UnmarshalComputed(bytes, &env)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
-		return
-	}
-	data = &env.Result
-
-	var metadataIndexRes *vectorize.IndexMetadataIndexListResponse
-	metadataIndexRes, err = r.client.Vectorize.Indexes.MetadataIndex.List(
-		ctx,
-		data.Name.ValueString(),
-		vectorize.IndexMetadataIndexListParams{
-			AccountID: cloudflare.F(data.AccountID.ValueString()),
-		},
-		option.WithMiddleware(logging.Middleware(ctx)),
-	)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to read metadata indexes", err.Error())
+		resp.Diagnostics.AddError("failed to read current state of vectorize index", err.Error())
 		return
 	}
 
-	var metadataIndexes []VectorizeMetadataIndexModel
-	for _, mi := range metadataIndexRes.MetadataIndexes {
-		metadataIndexes = append(metadataIndexes, VectorizeMetadataIndexModel{
-			PropertyName: types.StringValue(mi.PropertyName),
-			IndexType:    types.StringValue(string(mi.IndexType)),
-		})
-
-	}
-
-	result, diags := customfield.NewObjectSet(ctx, metadataIndexes)
-	resp.Diagnostics.Append(diags...)
-
-	data.MetadataIndexes = result
+	data.ID = basetypes.NewStringValue(index.Name)
+	data.Name = basetypes.NewStringValue(index.Name)
+	data.Description = basetypes.NewStringValue(index.Description)
+	data.Dimensions = basetypes.NewInt64Value(index.Config.Dimensions)
+	data.Metric = basetypes.NewStringValue(string(index.Config.Metric))
+	data.CreatedOn = basetypes.NewStringValue(index.CreatedOn.String())
+	data.ModifiedOn = basetypes.NewStringValue(index.ModifiedOn.String())
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *VectorizeResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data *VectorizeModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resp.Diagnostics.AddError("failed to update Vectorize index", "Not implemented")
+	var state *VectorizeModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	curIndexes := make(map[string]basetypes.StringValue)
+	diags := state.MetadataIndexes.ElementsAs(ctx, &curIndexes, false)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	newIndexes := make(map[string]basetypes.StringValue)
+	diags = data.MetadataIndexes.ElementsAs(ctx, &newIndexes, false)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	for propName, oldType := range curIndexes {
+		newType, exists := newIndexes[propName]
+
+		if !exists || oldType != newType {
+			_, err := r.client.Vectorize.Indexes.MetadataIndex.Delete(
+				ctx,
+				data.Name.ValueString(),
+				vectorize.IndexMetadataIndexDeleteParams{
+					AccountID:    cloudflare.F(data.AccountID.ValueString()),
+					PropertyName: cloudflare.F(propName),
+				},
+				option.WithMiddleware(logging.Middleware(ctx)),
+			)
+			if err != nil {
+				resp.Diagnostics.AddError("failed to update metadata indexes", err.Error())
+				return
+			}
+		}
+
+		if oldType != newType {
+			_, err := r.client.Vectorize.Indexes.MetadataIndex.New(
+				ctx,
+				data.Name.ValueString(),
+				vectorize.IndexMetadataIndexNewParams{
+					AccountID:    cloudflare.F(data.AccountID.ValueString()),
+					PropertyName: cloudflare.F(propName),
+					IndexType:    cloudflare.F(vectorize.IndexMetadataIndexNewParamsIndexType(newType.ValueString())),
+				},
+				option.WithMiddleware(logging.Middleware(ctx)),
+			)
+
+			if err != nil {
+				resp.Diagnostics.AddError("failed to update metadata indexes", err.Error())
+				return
+			}
+		}
+	}
+
+	for propName, newType := range newIndexes {
+		if _, exists := curIndexes[propName]; !exists {
+			_, err := r.client.Vectorize.Indexes.MetadataIndex.New(
+				ctx,
+				data.Name.ValueString(),
+				vectorize.IndexMetadataIndexNewParams{
+					AccountID:    cloudflare.F(data.AccountID.ValueString()),
+					PropertyName: cloudflare.F(propName),
+					IndexType:    cloudflare.F(vectorize.IndexMetadataIndexNewParamsIndexType(newType.ValueString())),
+				},
+				option.WithMiddleware(logging.Middleware(ctx)),
+			)
+			if err != nil {
+				resp.Diagnostics.AddError("failed to update metadata indexes", err.Error())
+				return
+			}
+		}
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *VectorizeResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
