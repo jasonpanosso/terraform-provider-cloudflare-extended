@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/consts"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/services/queue_consumer"
+	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/services/r2_event_notification"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/services/vectorize"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/services/workers_script"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/utils"
@@ -156,7 +157,12 @@ func (p *CloudflareExtendedProvider) ConfigValidators(_ context.Context) []provi
 }
 
 func (p *CloudflareExtendedProvider) Resources(ctx context.Context) []func() resource.Resource {
-	return []func() resource.Resource{vectorize.NewResource, workers_script.NewResource, queue_consumer.NewResource}
+	return []func() resource.Resource{
+		vectorize.NewResource,
+		workers_script.NewResource,
+		queue_consumer.NewResource,
+		r2_event_notification.NewResource,
+	}
 }
 
 func (p *CloudflareExtendedProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
