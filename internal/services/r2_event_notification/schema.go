@@ -3,7 +3,8 @@ package r2_event_notification
 import (
 	"context"
 
-	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -18,6 +19,12 @@ var _ resource.ResourceWithConfigValidators = (*R2EventNotificationResource)(nil
 
 func ResourceSchema(ctx context.Context) schema.Schema {
 	return schema.Schema{
+		Blocks: map[string]schema.Block{
+			"timeouts": timeouts.Block(ctx, timeouts.Opts{
+				Create: true,
+				Update: true,
+			}),
+		},
 		Attributes: map[string]schema.Attribute{
 			"account_id": schema.StringAttribute{
 				Description:   "Identifier.",
@@ -40,13 +47,12 @@ func ResourceSchema(ctx context.Context) schema.Schema {
 			},
 			"description": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Brief summary of the Vectorize database and its intended use.",
+				MarkdownDescription: "Brief summary of the event notifications and their intended use.",
 			},
 			"rules": schema.SetNestedAttribute{
 				Description: "List of r2 event notification rules",
 				CustomType:  customfield.NewNestedObjectSetType[R2EventNotificationRuleModel](ctx),
-				Optional:    true,
-				Computed:    true,
+				Required:    true,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"rule_id": schema.StringAttribute{
@@ -56,21 +62,24 @@ func ResourceSchema(ctx context.Context) schema.Schema {
 						"prefix": schema.StringAttribute{
 							Description: "Notifications will be sent only for objects with this prefix.",
 							Optional:    true,
+							Computed:    true,
 						},
 						"suffix": schema.StringAttribute{
 							Description: "Notifications will be sent only for objects with this suffix.",
 							Optional:    true,
+							Computed:    true,
 						},
 						"created_at": schema.StringAttribute{
 							Description: "Timestamp when the rule was created.",
 							Computed:    true,
 						},
-						"actions": schema.ListAttribute{
+						"actions": schema.SetAttribute{
 							ElementType: types.StringType,
-							Description: "List of R2 object actions that will trigger notifications",
+							CustomType:  customfield.NewSetType[types.String](ctx),
+							Description: "Set of R2 object actions that will trigger notifications",
 							Required:    true,
-							Validators: []validator.List{
-								listvalidator.ValueStringsAre(
+							Validators: []validator.Set{
+								setvalidator.ValueStringsAre(
 									stringvalidator.OneOf([]string{"PutObject", "CopyObject", "DeleteObject", "CompleteMultipartUpload", "LifecycleDeletion"}...),
 								),
 							},
