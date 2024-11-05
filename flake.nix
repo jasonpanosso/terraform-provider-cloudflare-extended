@@ -22,6 +22,7 @@
               pkgs.go
               pkgs.gnumake
               pkgs.tfplugindocs
+              pkgs.goreleaser
             ];
           };
         });
