@@ -21,6 +21,7 @@
               pkgs.terraform
               pkgs.go
               pkgs.gnumake
+              pkgs.tfplugindocs
             ];
           };
         });
