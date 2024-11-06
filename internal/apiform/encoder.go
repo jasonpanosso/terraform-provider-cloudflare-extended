@@ -208,6 +208,18 @@ func (e *encoder) newTerraformTypeEncoder(t reflect.Type) encoderFunc {
 			structValue, _ := converted.ValueAny(context.TODO())
 			return structValue
 		})
+	} else if t.Implements(reflect.TypeOf((*customfield.NestedObjectListLike)(nil)).Elem()) {
+		return e.terraformUnwrappedDynamicEncoder(func(value any) any {
+			converted := value.(customfield.NestedObjectListLike)
+			structSlice, _ := converted.AsStructSlice(context.TODO())
+			return structSlice
+		})
+	} else if t.Implements(reflect.TypeOf((*customfield.ListLike)(nil)).Elem()) {
+		return e.terraformUnwrappedDynamicEncoder(func(value any) any {
+			converted := value.(customfield.ListLike)
+			listValue, _ := converted.ValueAttr(context.TODO())
+			return listValue
+		})
 	}
 
 	return func(key string, value reflect.Value, writer *multipart.Writer) error {

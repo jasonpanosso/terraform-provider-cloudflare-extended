@@ -18,56 +18,65 @@ description: |-
 ### Required
 
 - `account_id` (String) Identifier
+- `parts` (Attributes Map) A module comprising a Worker script, often a javascript file. Multiple modules may be provided as separate named parts, but at least one module must be present and referenced in the metadata as `main_module` or `body_part` by part name. Source maps may also be included using the `application/source-map` content type. (see [below for nested schema](#nestedatt--parts))
 - `script_name` (String) Name of the script, used in URLs and route configuration.
 
 ### Optional
 
-- `any_part_name` (List of String) A module comprising a Worker script, often a javascript file. Multiple modules may be provided as separate named parts, but at least one module must be present and referenced in the metadata as `main_module` or `body_part` by part name. Source maps may also be included using the `application/source-map` content type.
+- `bindings` (Attributes Set) Set of bindings available to the worker. (see [below for nested schema](#nestedatt--bindings))
+- `body_part` (String) Name of the part in the multipart request that contains the script (e.g. the file adding a listener to the `fetch` event). Indicates a `service worker syntax` Worker.
+- `compatibility_date` (String) Date indicating targeted support in the Workers runtime. Backwards incompatible fixes to the runtime following this date will not affect this Worker.
+- `compatibility_flags` (Set of String) Flags that enable or disable certain features in the Workers runtime. Used to enable upcoming features or opt in or out of specific changes not included in a `compatibility_date`.
+- `keep_bindings` (Set of String) Set of binding types to keep from previous_upload.
+- `logpush` (Boolean) Whether Logpush is turned on for the Worker.
+- `main_module` (String) Name of the part in the multipart request that contains the main module (e.g. the file exporting a `fetch` handler). Indicates a `module syntax` Worker.
 - `message` (String) Rollback message to be associated with this deployment. Only parsed when query param `"rollback_to"` is present.
-- `metadata` (Attributes) JSON encoded metadata about the uploaded parts and Worker configuration. (see [below for nested schema](#nestedatt--metadata))
+- `migrations` (Attributes) Migrations to apply for Durable Objects associated with this Worker. (see [below for nested schema](#nestedatt--migrations))
+- `placement_mode` (String) Enables [Smart Placement](https://developers.cloudflare.com/workers/configuration/smart-placement). Only `"smart"` is currently supported
+- `tags` (Set of String) Set of strings to use as tags for this Worker
+- `tail_consumers` (Attributes Set) Set of Workers that will consume logs from the attached Worker. (see [below for nested schema](#nestedatt--tail_consumers))
+- `usage_model` (String) Usage model to apply to invocations.
+- `version_tags` (Map of String) Key-value pairs to use as tags for this version of this Worker
 
 ### Read-Only
 
 - `created_on` (String) When the script was created.
 - `etag` (String) Hashed script content, can be used in a If-None-Match header when updating.
 - `id` (String) Name of the script, used in URLs and route configuration.
-- `logpush` (Boolean) Whether Logpush is turned on for the Worker.
 - `modified_on` (String) When the script was last modified.
-- `placement_mode` (String) Specifies the placement mode for the Worker (e.g. 'smart').
 - `startup_time_ms` (Number)
-- `tail_consumers` (Attributes List) List of Workers that will consume logs from the attached Worker. (see [below for nested schema](#nestedatt--tail_consumers))
-- `usage_model` (String) Specifies the usage model for the Worker (e.g. 'bundled' or 'unbound').
 
-<a id="nestedatt--metadata"></a>
-### Nested Schema for `metadata`
+<a id="nestedatt--parts"></a>
+### Nested Schema for `parts`
 
-Optional:
+Required:
 
-- `bindings` (Attributes List) List of bindings available to the worker. (see [below for nested schema](#nestedatt--metadata--bindings))
-- `body_part` (String) Name of the part in the multipart request that contains the script (e.g. the file adding a listener to the `fetch` event). Indicates a `service worker syntax` Worker.
-- `compatibility_date` (String) Date indicating targeted support in the Workers runtime. Backwards incompatible fixes to the runtime following this date will not affect this Worker.
-- `compatibility_flags` (List of String) Flags that enable or disable certain features in the Workers runtime. Used to enable upcoming features or opt in or out of specific changes not included in a `compatibility_date`.
-- `keep_bindings` (List of String) List of binding types to keep from previous_upload.
-- `logpush` (Boolean) Whether Logpush is turned on for the Worker.
-- `main_module` (String) Name of the part in the multipart request that contains the main module (e.g. the file exporting a `fetch` handler). Indicates a `module syntax` Worker.
-- `migrations` (Attributes) Migrations to apply for Durable Objects associated with this Worker. (see [below for nested schema](#nestedatt--metadata--migrations))
-- `placement` (Attributes) (see [below for nested schema](#nestedatt--metadata--placement))
-- `tags` (List of String) List of strings to use as tags for this Worker
-- `tail_consumers` (Attributes List) List of Workers that will consume logs from the attached Worker. (see [below for nested schema](#nestedatt--metadata--tail_consumers))
-- `usage_model` (String) Usage model to apply to invocations.
-- `version_tags` (Map of String) Key-value pairs to use as tags for this version of this Worker
-
-<a id="nestedatt--metadata--bindings"></a>
-### Nested Schema for `metadata.bindings`
+- `part` (String) Script content.
 
 Optional:
 
+- `module` (Boolean) True if the script part is a javascript module.
+
+
+<a id="nestedatt--bindings"></a>
+### Nested Schema for `bindings`
+
+Optional:
+
+- `bucket_name` (String) Name of the R2 Bucket for R2 Bindings.
+- `certificate_id` (String) ID of the certificate to bind to.
+- `class_name` (String) The exported class name of the Durable Object.
+- `environment` (String) Environment to bind to.
+- `id` (String) ID of the D1 database to bind to.
 - `name` (String) Name of the binding variable.
+- `queue_name` (String) Name of the Queue to bind to.
+- `script_name` (String) The script where the Durable Object is defined, if it is external to this Worker.
+- `service` (String) Name of Worker to bind to.
 - `type` (String) Type of binding. You can find more about bindings on our docs: https://developers.cloudflare.com/workers/configuration/multipart-upload-metadata/#bindings.
 
 
-<a id="nestedatt--metadata--migrations"></a>
-### Nested Schema for `metadata.migrations`
+<a id="nestedatt--migrations"></a>
+### Nested Schema for `migrations`
 
 Optional:
 
@@ -76,12 +85,12 @@ Optional:
 - `new_sqlite_classes` (List of String) A list of classes to create Durable Object namespaces with SQLite from.
 - `new_tag` (String) Tag to set as the latest migration tag.
 - `old_tag` (String) Tag used to verify against the latest migration tag for this Worker. If they don't match, the upload is rejected.
-- `renamed_classes` (Attributes List) A list of classes with Durable Object namespaces that were renamed. (see [below for nested schema](#nestedatt--metadata--migrations--renamed_classes))
-- `steps` (Attributes List) Migrations to apply in order. (see [below for nested schema](#nestedatt--metadata--migrations--steps))
-- `transferred_classes` (Attributes List) A list of transfers for Durable Object namespaces from a different Worker and class to a class defined in this Worker. (see [below for nested schema](#nestedatt--metadata--migrations--transferred_classes))
+- `renamed_classes` (Attributes List) A list of classes with Durable Object namespaces that were renamed. (see [below for nested schema](#nestedatt--migrations--renamed_classes))
+- `steps` (Attributes List) Migrations to apply in order. (see [below for nested schema](#nestedatt--migrations--steps))
+- `transferred_classes` (Attributes List) A list of transfers for Durable Object namespaces from a different Worker and class to a class defined in this Worker. (see [below for nested schema](#nestedatt--migrations--transferred_classes))
 
-<a id="nestedatt--metadata--migrations--renamed_classes"></a>
-### Nested Schema for `metadata.migrations.renamed_classes`
+<a id="nestedatt--migrations--renamed_classes"></a>
+### Nested Schema for `migrations.renamed_classes`
 
 Optional:
 
@@ -89,19 +98,19 @@ Optional:
 - `to` (String)
 
 
-<a id="nestedatt--metadata--migrations--steps"></a>
-### Nested Schema for `metadata.migrations.steps`
+<a id="nestedatt--migrations--steps"></a>
+### Nested Schema for `migrations.steps`
 
 Optional:
 
 - `deleted_classes` (List of String) A list of classes to delete Durable Object namespaces from.
 - `new_classes` (List of String) A list of classes to create Durable Object namespaces from.
 - `new_sqlite_classes` (List of String) A list of classes to create Durable Object namespaces with SQLite from.
-- `renamed_classes` (Attributes List) A list of classes with Durable Object namespaces that were renamed. (see [below for nested schema](#nestedatt--metadata--migrations--steps--renamed_classes))
-- `transferred_classes` (Attributes List) A list of transfers for Durable Object namespaces from a different Worker and class to a class defined in this Worker. (see [below for nested schema](#nestedatt--metadata--migrations--steps--transferred_classes))
+- `renamed_classes` (Attributes List) A list of classes with Durable Object namespaces that were renamed. (see [below for nested schema](#nestedatt--migrations--steps--renamed_classes))
+- `transferred_classes` (Attributes List) A list of transfers for Durable Object namespaces from a different Worker and class to a class defined in this Worker. (see [below for nested schema](#nestedatt--migrations--steps--transferred_classes))
 
-<a id="nestedatt--metadata--migrations--steps--renamed_classes"></a>
-### Nested Schema for `metadata.migrations.steps.renamed_classes`
+<a id="nestedatt--migrations--steps--renamed_classes"></a>
+### Nested Schema for `migrations.steps.renamed_classes`
 
 Optional:
 
@@ -109,19 +118,8 @@ Optional:
 - `to` (String)
 
 
-<a id="nestedatt--metadata--migrations--steps--transferred_classes"></a>
-### Nested Schema for `metadata.migrations.steps.transferred_classes`
-
-Optional:
-
-- `from` (String)
-- `from_script` (String)
-- `to` (String)
-
-
-
-<a id="nestedatt--metadata--migrations--transferred_classes"></a>
-### Nested Schema for `metadata.migrations.transferred_classes`
+<a id="nestedatt--migrations--steps--transferred_classes"></a>
+### Nested Schema for `migrations.steps.transferred_classes`
 
 Optional:
 
@@ -131,16 +129,19 @@ Optional:
 
 
 
-<a id="nestedatt--metadata--placement"></a>
-### Nested Schema for `metadata.placement`
+<a id="nestedatt--migrations--transferred_classes"></a>
+### Nested Schema for `migrations.transferred_classes`
 
 Optional:
 
-- `mode` (String) Enables [Smart Placement](https://developers.cloudflare.com/workers/configuration/smart-placement). Only `"smart"` is currently supported
+- `from` (String)
+- `from_script` (String)
+- `to` (String)
 
 
-<a id="nestedatt--metadata--tail_consumers"></a>
-### Nested Schema for `metadata.tail_consumers`
+
+<a id="nestedatt--tail_consumers"></a>
+### Nested Schema for `tail_consumers`
 
 Required:
 
@@ -150,14 +151,3 @@ Optional:
 
 - `environment` (String) Optional environment if the Worker utilizes one.
 - `namespace` (String) Optional dispatch namespace the script belongs to.
-
-
-
-<a id="nestedatt--tail_consumers"></a>
-### Nested Schema for `tail_consumers`
-
-Read-Only:
-
-- `environment` (String) Optional environment if the Worker utilizes one.
-- `namespace` (String) Optional dispatch namespace the script belongs to.
-- `service` (String) Name of Worker that is to be the consumer.

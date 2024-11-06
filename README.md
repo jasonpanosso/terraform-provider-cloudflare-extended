@@ -6,11 +6,10 @@ which uses the cloudflare-go v3 client.
 I needed the following resources for my own projects, hopefully will be deprecated
 by the cf provider getting up to date with all of cloudflares services.
 
-Queue Consumers & Workers Scripts implementations are copied & pasted directly
-from the `next` branch.
+Queue Consumers implementation is copied & pasted directly from the `next` branch.
 
-R2 Event Notifications and Vectorize are implemented on their own in this repo,
-acceptance tests are passing for them.
+R2 Event Notifications Vectorize, and Workers Script are implemented on their
+own in this repo, acceptance tests are passing for them.
 
 # Additions
 
@@ -21,6 +20,5 @@ acceptance tests are passing for them.
   - resource
 - Workers with all bindings as of 11/05/2024
   - resource
-  - data source
 - Vectorize
   - resource

@@ -3,7 +3,6 @@ package r2_event_notification
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -327,7 +326,7 @@ func (r *R2EventNotificationResource) getQueue(
 		}
 	}
 
-	return nil, errors.New("could not find queue associated with event notification")
+	return nil, fmt.Errorf("could not find queue associated with event notification")
 }
 
 func convertToUpdateParamsRules(

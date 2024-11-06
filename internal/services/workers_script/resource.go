@@ -9,8 +9,13 @@ import (
 	"github.com/cloudflare/cloudflare-go/v3"
 	"github.com/cloudflare/cloudflare-go/v3/option"
 	"github.com/cloudflare/cloudflare-go/v3/workers"
+	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/apijson"
+	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/customfield"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/importpath"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/logging"
 )
@@ -56,7 +61,6 @@ func (r *WorkersScriptResource) Create(ctx context.Context, req resource.CreateR
 	var data *WorkersScriptModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -66,30 +70,21 @@ func (r *WorkersScriptResource) Create(ctx context.Context, req resource.CreateR
 		resp.Diagnostics.AddError("failed to serialize multipart http request", err.Error())
 		return
 	}
-	res := new(http.Response)
-	env := WorkersScriptResultEnvelope{*data}
-	_, err = r.client.Workers.Scripts.Update(
+	created, err := r.client.Workers.Scripts.Update(
 		ctx,
 		data.ScriptName.ValueString(),
 		workers.ScriptUpdateParams{
 			AccountID: cloudflare.F(data.AccountID.ValueString()),
 		},
 		option.WithRequestBody(contentType, dataBytes),
-		option.WithResponseBodyInto(&res),
 		option.WithMiddleware(logging.Middleware(ctx)),
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to make http request", err.Error())
 		return
 	}
-	bytes, _ := io.ReadAll(res.Body)
-	err = apijson.UnmarshalComputed(bytes, &env)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
-		return
-	}
-	data = &env.Result
-	data.ID = data.ScriptName
+
+	updateModelFromResponse(ctx, data, created)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -107,39 +102,10 @@ func (r *WorkersScriptResource) Update(ctx context.Context, req resource.UpdateR
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 
+	r.handleUpdate(ctx, data, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	dataBytes, contentType, err := data.MarshalMultipart()
-	if err != nil {
-		resp.Diagnostics.AddError("failed to serialize multipart http request", err.Error())
-		return
-	}
-	res := new(http.Response)
-	env := WorkersScriptResultEnvelope{*data}
-	_, err = r.client.Workers.Scripts.Update(
-		ctx,
-		data.ScriptName.ValueString(),
-		workers.ScriptUpdateParams{
-			AccountID: cloudflare.F(data.AccountID.ValueString()),
-		},
-		option.WithRequestBody(contentType, dataBytes),
-		option.WithResponseBodyInto(&res),
-		option.WithMiddleware(logging.Middleware(ctx)),
-	)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to make http request", err.Error())
-		return
-	}
-	bytes, _ := io.ReadAll(res.Body)
-	err = apijson.UnmarshalComputed(bytes, &env)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
-		return
-	}
-	data = &env.Result
-	data.ID = data.ScriptName
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -154,26 +120,51 @@ func (r *WorkersScriptResource) Read(ctx context.Context, req resource.ReadReque
 	}
 
 	res := new(http.Response)
-	_, err := r.client.Workers.Scripts.Get(
+	path := fmt.Sprintf("accounts/%s/workers/scripts/%s/settings", data.AccountID.ValueString(), data.ID.ValueString())
+	err := r.client.Execute(
 		ctx,
-		data.ScriptName.ValueString(),
-		workers.ScriptGetParams{
-			AccountID: cloudflare.F(data.AccountID.ValueString()),
-		},
-		option.WithResponseBodyInto(&res),
+		http.MethodGet,
+		path,
+		nil,
+		&res,
 		option.WithMiddleware(logging.Middleware(ctx)),
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to make http request", err.Error())
 		return
 	}
-	bytes, _ := io.ReadAll(res.Body)
-	err = apijson.UnmarshalComputed(bytes, &data)
+
+	bytes := make([]byte, 0)
+	_, err = res.Body.Read(bytes)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
 		return
 	}
-	data.ID = data.ScriptName
+
+	env := WorkersScriptSettingResponseEnvelope{}
+	err = apijson.Unmarshal(bytes, &env)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
+		return
+	}
+
+	data.Logpush = env.Result.Logpush
+	data.UsageModel = env.Result.UsageModel
+
+	tcModel, diags := env.Result.TailConsumers.AsStructSliceT(ctx)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.TailConsumers = customfield.NewObjectSetMust(ctx, tcModel)
+
+	placement := WorkersScriptMetadataPlacementModel{}
+	diags = env.Result.Placement.As(ctx, &placement, basetypes.ObjectAsOptions{UnhandledNullAsEmpty: true, UnhandledUnknownAsEmpty: true})
+	resp.Diagnostics = append(resp.Diagnostics, diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.PlacementMode = placement.Mode
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -247,4 +238,52 @@ func (r *WorkersScriptResource) ImportState(ctx context.Context, req resource.Im
 
 func (r *WorkersScriptResource) ModifyPlan(_ context.Context, _ resource.ModifyPlanRequest, _ *resource.ModifyPlanResponse) {
 
+}
+
+func (r *WorkersScriptResource) handleUpdate(ctx context.Context, data *WorkersScriptModel, diags *diag.Diagnostics) {
+	dataBytes, contentType, err := data.MarshalMultipart()
+	if err != nil {
+		diags.AddError("failed to serialize multipart http request", err.Error())
+		return
+	}
+
+	created, err := r.client.Workers.Scripts.Update(
+		ctx,
+		data.ScriptName.ValueString(),
+		workers.ScriptUpdateParams{
+			AccountID: cloudflare.F(data.AccountID.ValueString()),
+		},
+		option.WithRequestBody(contentType, dataBytes),
+		option.WithMiddleware(logging.Middleware(ctx)),
+	)
+	if err != nil {
+		diags.AddError("failed to make http request", err.Error())
+		return
+	}
+
+	updateModelFromResponse(ctx, data, created)
+}
+
+func updateModelFromResponse(ctx context.Context, model *WorkersScriptModel, res *workers.ScriptUpdateResponse) {
+	model.Etag = types.StringValue(res.Etag)
+	model.ID = types.StringValue(res.ID)
+	model.Logpush = types.BoolValue(res.Logpush)
+	model.UsageModel = types.StringValue(res.UsageModel)
+	model.CreatedOn = timetypes.NewRFC3339TimeValue(res.CreatedOn)
+	model.ModifiedOn = timetypes.NewRFC3339TimeValue(res.ModifiedOn)
+	model.PlacementMode = types.StringValue(res.PlacementMode)
+	model.StartupTimeMs = types.Int64Value(res.StartupTimeMs)
+
+	var tailConsumerModels []WorkersScriptTailConsumersModel
+	for _, tc := range res.TailConsumers {
+		tailConsumerModels = append(
+			tailConsumerModels,
+			WorkersScriptTailConsumersModel{
+				Service:     types.StringValue(tc.Service),
+				Environment: types.StringValue(tc.Environment),
+				Namespace:   types.StringValue(tc.Namespace),
+			})
+	}
+
+	model.TailConsumers = customfield.NewObjectSetMust(ctx, tailConsumerModels)
 }

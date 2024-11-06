@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	cloudflare "github.com/cloudflare/cloudflare-go"
+	cfv1 "github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v3"
+	"github.com/cloudflare/cloudflare-go/v3/workers"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -20,238 +17,119 @@ import (
 )
 
 const (
-	scriptContent1    = `addEventListener('fetch', event => {event.respondWith(new Response('test 1'))});`
-	scriptContent2    = `addEventListener('fetch', event => {event.respondWith(new Response('test 2'))});`
-	moduleContent     = `export default { fetch() { return new Response('Hello world'); }, };`
-	encodedWasm       = "AGFzbQEAAAAGgYCAgAAA" // wat source: `(module)`, so literally just an empty wasm module
-	compatibilityDate = "2023-03-19"
-	d1DatabaseID      = "ce8b95dc-b376-4ff8-9b9e-1801ed6d745d"
+	moduleContent1 = `export default { fetch() { return new Response('Hello world 1'); }, };`
+	moduleContent2 = `export default { fetch() { return new Response('Hello world 2'); }, };`
 )
 
-var (
-	compatibilityFlags = []string{"nodejs_compat", "web_socket_compression"}
-)
-
-func TestAccCloudflareWorkerScript_MultiScriptEnt(t *testing.T) {
+func TestAccCloudflareWorkerScript_ScriptEnt(t *testing.T) {
 	t.Parallel()
 
-	// var script cloudflare.WorkerScript
 	rnd := utils.GenerateRandomResourceName()
-	name := "cloudflare_workers_script." + rnd
+	name := "cloudflare-extended_workers_script." + rnd
 	accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
+	bucketName := os.Getenv("R2_BUCKET_NAME")
+
+	if bucketName == "" {
+		t.Fatal("R2_BUCKET_NAME must be set for this acceptance test")
+	}
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			acctest.TestAccPreCheck(t)
 			acctest.TestAccPreCheck_AccountID(t)
-			testAccCheckCloudflareWorkerScriptCreateBucket(t, rnd)
 		},
 		ProtoV6ProviderFactories: acctest.TestAccProtoV6ProviderFactories,
 		CheckDestroy:             testAccCheckCloudflareWorkerScriptDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccCheckCloudflareWorkerScriptConfigMultiScriptInitial(rnd, accountID),
+				Config: testAccCheckCloudflareWorkerScriptConfigScriptInitial(rnd, accountID),
 				Check: resource.ComposeTestCheckFunc(
-					// testAccCheckCloudflareWorkerScriptExists(name, &script, nil),
-					resource.TestCheckResourceAttr(name, "name", rnd),
-					resource.TestCheckResourceAttr(name, "content", scriptContent1),
+					testAccCheckCloudflareWorkerScriptExists(name, nil),
+					resource.TestCheckResourceAttr(name, "script_name", rnd),
 				),
 			},
 			{
-				Config: testAccCheckCloudflareWorkerScriptConfigMultiScriptUpdate(rnd, accountID),
+				Config: testAccCheckCloudflareWorkerScriptConfigScriptUpdate(rnd, accountID),
 				Check: resource.ComposeTestCheckFunc(
-					// testAccCheckCloudflareWorkerScriptExists(name, &script, nil),
-					resource.TestCheckResourceAttr(name, "name", rnd),
-					resource.TestCheckResourceAttr(name, "content", scriptContent2),
+					testAccCheckCloudflareWorkerScriptExists(name, nil),
+					resource.TestCheckResourceAttr(name, "script_name", rnd),
 				),
 			},
 			{
-				Config: testAccCheckCloudflareWorkerScriptConfigMultiScriptUpdateBinding(rnd, accountID),
+				Config: testAccCheckCloudflareWorkerScriptConfigScriptUpdateBinding(rnd, accountID, bucketName),
 				Check: resource.ComposeTestCheckFunc(
-					// testAccCheckCloudflareWorkerScriptExists(name, &script, []string{"MY_KV_NAMESPACE", "MY_PLAIN_TEXT", "MY_SECRET_TEXT", "MY_WASM", "MY_SERVICE_BINDING", "MY_BUCKET", "MY_QUEUE"}),
-					resource.TestCheckResourceAttr(name, "name", rnd),
-					resource.TestCheckResourceAttr(name, "content", scriptContent2),
+					testAccCheckCloudflareWorkerScriptExists(name, []string{"ai", "bucket"}),
+					resource.TestCheckResourceAttr(name, "script_name", rnd),
 				),
 			},
 		},
 	})
 }
 
-func TestAccCloudflareWorkerScript_ModuleUpload(t *testing.T) {
-	t.Parallel()
-
-	// var script cloudflare.WorkerScript
-	rnd := utils.GenerateRandomResourceName()
-	name := "cloudflare_workers_script." + rnd
-	r2AccesKeyID := os.Getenv("CLOUDFLARE_R2_ACCESS_KEY_ID")
-	r2AccesKeySecret := os.Getenv("CLOUDFLARE_R2_ACCESS_KEY_SECRET")
-	accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
-
-	resource.Test(t, resource.TestCase{
-		PreCheck: func() {
-			acctest.TestAccPreCheck(t)
-			acctest.TestAccPreCheck_AccountID(t)
-			testAccCheckCloudflareWorkerScriptCreateBucket(t, rnd)
-		},
-		ProtoV6ProviderFactories: acctest.TestAccProtoV6ProviderFactories,
-		CheckDestroy:             testAccCheckCloudflareWorkerScriptDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccCheckCloudflareWorkerScriptUploadModule(rnd, accountID, r2AccesKeyID, r2AccesKeySecret),
-				Check: resource.ComposeTestCheckFunc(
-					// testAccCheckCloudflareWorkerScriptExists(name, &script, []string{"MY_DATABASE"}),
-					resource.TestCheckResourceAttr(name, "name", rnd),
-					resource.TestCheckResourceAttr(name, "content", moduleContent),
-					resource.TestCheckResourceAttr(name, "compatibility_date", compatibilityDate),
-					resource.TestCheckResourceAttr(name, "compatibility_flags.#", "2"),
-					resource.TestCheckResourceAttr(name, "compatibility_flags.0", compatibilityFlags[0]),
-					resource.TestCheckResourceAttr(name, "logpush", "true"),
-					resource.TestCheckResourceAttr(name, "placement.0.mode", "smart"),
-				),
-			},
-		},
-	})
+func testAccCheckCloudflareWorkerScriptConfigScriptInitial(rnd, accountID string) string {
+	return acctest.LoadTestCase("workerscriptconfigscriptinitial.tf", rnd, accountID, moduleContent1)
 }
 
-// We can't currently use `cloudflare_r2_bucket` here due to not being able to
-// mix V5 and V6 protocol resources without circular dependencies. In an ideal
-// world, this would all be handled by the inbuilt resource.
-func testAccCheckCloudflareWorkerScriptCreateBucket(t *testing.T, rnd string) {
-	accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
-	accessKeyId := os.Getenv("CLOUDFLARE_R2_ACCESS_KEY_ID")
-	accessKeySecret := os.Getenv("CLOUDFLARE_R2_ACCESS_KEY_SECRET")
+func testAccCheckCloudflareWorkerScriptConfigScriptUpdate(rnd, accountID string) string {
+	return acctest.LoadTestCase("workerscriptconfigscriptupdate.tf", rnd, accountID, moduleContent2)
+}
 
-	if accessKeyId == "" {
-		t.Fatal("CLOUDFLARE_R2_ACCESS_KEY_ID must be set for this acceptance test")
-	}
+func testAccCheckCloudflareWorkerScriptConfigScriptUpdateBinding(rnd, accountID, bucketName string) string {
+	return acctest.LoadTestCase("workerscriptconfigscriptupdatebinding.tf", rnd, accountID, moduleContent2, bucketName)
+}
 
-	if accessKeyId == "" {
-		t.Fatal("CLOUDFLARE_R2_ACCESS_KEY_SECRET must be set for this acceptance test")
-	}
+func testAccCheckCloudflareWorkerScriptExists(n string, bindings []string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
 
-	client, clientErr := acctest.SharedV1Client() // TODO(terraform): replace with SharedV2Clent
-	if clientErr != nil {
-		tflog.Error(context.TODO(), fmt.Sprintf("failed to create Cloudflare client: %s", clientErr))
-	}
-	_, err := client.CreateR2Bucket(context.Background(), cloudflare.AccountIdentifier(accountID), cloudflare.CreateR2BucketParameters{Name: rnd})
-	if err != nil {
-		t.Fatalf("unable to create test bucket named %s: %v", rnd, err)
-	}
-
-	t.Cleanup(func() {
-		r2Resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-			return aws.Endpoint{
-				URL: fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID),
-			}, nil
-		})
-
-		cfg, err := config.LoadDefaultConfig(context.TODO(),
-			config.WithEndpointResolverWithOptions(r2Resolver),
-			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyId, accessKeySecret, "")),
-			config.WithDefaultRegion("auto"),
-		)
-		if err != nil {
-			t.Error(err)
+		rs, ok := s.RootModule().Resources[n]
+		if !ok {
+			return fmt.Errorf("not found: %s", n)
 		}
 
-		s3client := s3.NewFromConfig(cfg)
-		listObjectsOutput, err := s3client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
-			Bucket: &rnd,
-		})
+		if rs.Primary.ID == "" {
+			return fmt.Errorf("No Worker Script ID is set")
+		}
+		client := cloudflare.NewClient()
+
+		r, err := client.Workers.Scripts.Settings.Get(context.Background(), rs.Primary.ID, workers.ScriptSettingGetParams{AccountID: cloudflare.F(accountID)})
 		if err != nil {
-			t.Error(err)
+			return err
 		}
 
-		for _, object := range listObjectsOutput.Contents {
-			_, err = s3client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
-				Bucket: &rnd,
-				Key:    object.Key,
-			})
-			if err != nil {
-				t.Error(err)
+		if r == nil {
+			return fmt.Errorf("Worker Script not found")
+		}
+
+		foundBindings, err := getWorkerScriptBindings(context.Background(), accountID, rs.Primary.ID, nil)
+		if err != nil {
+			return fmt.Errorf("cannot list script bindings: %w", err)
+		}
+
+		for _, binding := range bindings {
+			if _, ok := foundBindings[binding]; !ok {
+				return fmt.Errorf("cannot find binding with name %s", binding)
 			}
 		}
 
-		err = client.DeleteR2Bucket(context.Background(), cloudflare.AccountIdentifier(accountID), rnd)
-		if err != nil {
-			t.Errorf("Failed to clean up bucket named %s: %v", rnd, err)
-		}
-	})
+		return nil
+	}
 }
-
-func testAccCheckCloudflareWorkerScriptConfigMultiScriptInitial(rnd, accountID string) string {
-	return acctest.LoadTestCase("workerscriptconfigmultiscriptinitial.tf", rnd, scriptContent1, accountID)
-}
-
-func testAccCheckCloudflareWorkerScriptConfigMultiScriptUpdate(rnd, accountID string) string {
-	return acctest.LoadTestCase("workerscriptconfigmultiscriptupdate.tf", rnd, scriptContent2, accountID)
-}
-
-func testAccCheckCloudflareWorkerScriptConfigMultiScriptUpdateBinding(rnd, accountID string) string {
-	return acctest.LoadTestCase("workerscriptconfigmultiscriptupdatebinding.tf", rnd, scriptContent2, encodedWasm, accountID)
-}
-
-func testAccCheckCloudflareWorkerScriptUploadModule(rnd, accountID, r2AccessKeyID, r2AccessKeySecret string) string {
-	return acctest.LoadTestCase("workerscriptuploadmodule.tf", rnd, moduleContent, accountID, compatibilityDate, strings.Join(compatibilityFlags, `","`), r2AccessKeyID, r2AccessKeySecret, d1DatabaseID)
-}
-
-// func testAccCheckCloudflareWorkerScriptExists(n string, script *cloudflare.WorkerScript, bindings []string) resource.TestCheckFunc {
-// 	return func(s *terraform.State) error {
-// 		accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
-
-// 		rs, ok := s.RootModule().Resources[n]
-// 		if !ok {
-// 			return fmt.Errorf("not found: %s", n)
-// 		}
-
-// 		if rs.Primary.ID == "" {
-// 			return fmt.Errorf("No Worker Script ID is set")
-// 		}
-
-// 		client, clientErr := acctest.SharedV1Client() // TODO(terraform): replace with SharedV2Clent
-// 		if clientErr != nil {
-// 			tflog.Error(context.TODO(), fmt.Sprintf("failed to create Cloudflare client: %s", clientErr))
-// 		}
-
-// 		r, err := client.GetWorker(context.Background(), cloudflare.AccountIdentifier(accountID), rs.Primary.Attributes["name"])
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		if r.Script == "" {
-// 			return fmt.Errorf("Worker Script not found")
-// 		}
-
-// 		name := strings.Replace(n, "cloudflare_workers_script.", "", -1)
-// 		foundBindings, err := getWorkerScriptBindings(context.Background(), accountID, name, nil, client)
-// 		if err != nil {
-// 			return fmt.Errorf("cannot list script bindings: %w", err)
-// 		}
-
-// 		for _, binding := range bindings {
-// 			if _, ok := foundBindings[binding]; !ok {
-// 				return fmt.Errorf("cannot find binding with name %s", binding)
-// 			}
-// 		}
-
-// 		*script = r.WorkerScript
-// 		return nil
-// 	}
-// }
 
 func testAccCheckCloudflareWorkerScriptDestroy(s *terraform.State) error {
 	accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
 
 	for _, rs := range s.RootModule().Resources {
-		if rs.Type != "cloudflare_workers_script" {
+		if rs.Type != "cloudflare-extended_workers_script" {
 			continue
 		}
 
-		client, clientErr := acctest.SharedV1Client() // TODO(terraform): replace with SharedV2Clent
-		if clientErr != nil {
-			tflog.Error(context.TODO(), fmt.Sprintf("failed to create Cloudflare client: %s", clientErr))
+		client, err := cfv1.NewWithAPIToken(os.Getenv("CLOUDFLARE_API_TOKEN"))
+		if err != nil {
+			tflog.Error(context.TODO(), fmt.Sprintf("failed to create Cloudflare client: %s", err))
 		}
-		r, _ := client.GetWorker(context.Background(), cloudflare.AccountIdentifier(accountID), rs.Primary.Attributes["name"])
+
+		r, _ := client.GetWorker(context.Background(), cfv1.AccountIdentifier(accountID), rs.Primary.ID)
 
 		if r.Script != "" {
 			return fmt.Errorf("worker script with id %s still exists", rs.Primary.ID)
@@ -259,4 +137,30 @@ func testAccCheckCloudflareWorkerScriptDestroy(s *terraform.State) error {
 	}
 
 	return nil
+}
+
+type ScriptBindings map[string]cfv1.WorkerBinding
+
+func getWorkerScriptBindings(ctx context.Context, accountId, scriptName string, dispatchNamespace *string) (ScriptBindings, error) {
+	client, err := cfv1.NewWithAPIToken(os.Getenv("CLOUDFLARE_API_TOKEN"))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.ListWorkerBindings(
+		ctx,
+		cfv1.AccountIdentifier(accountId),
+		cfv1.ListWorkerBindingsParams{ScriptName: scriptName, DispatchNamespace: dispatchNamespace},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot list script bindings: %w", err)
+	}
+
+	bindings := make(ScriptBindings, len(resp.BindingList))
+
+	for _, b := range resp.BindingList {
+		bindings[b.Name] = b.Binding
+	}
+
+	return bindings, nil
 }
