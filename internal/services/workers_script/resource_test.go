@@ -118,19 +118,17 @@ func testAccCheckCloudflareWorkerScriptExists(n string, bindings []string) resou
 
 func testAccCheckCloudflareWorkerScriptDestroy(s *terraform.State) error {
 	accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
+	client, err := cfv1.NewWithAPIToken(os.Getenv("CLOUDFLARE_API_TOKEN"))
+	if err != nil {
+		tflog.Error(context.TODO(), fmt.Sprintf("failed to create Cloudflare client: %s", err))
+	}
 
 	for _, rs := range s.RootModule().Resources {
 		if rs.Type != "cloudflare-extended_workers_script" {
 			continue
 		}
 
-		client, err := cfv1.NewWithAPIToken(os.Getenv("CLOUDFLARE_API_TOKEN"))
-		if err != nil {
-			tflog.Error(context.TODO(), fmt.Sprintf("failed to create Cloudflare client: %s", err))
-		}
-
 		r, _ := client.GetWorker(context.Background(), cfv1.AccountIdentifier(accountID), rs.Primary.ID)
-
 		if r.Script != "" {
 			return fmt.Errorf("worker script with id %s still exists", rs.Primary.ID)
 		}

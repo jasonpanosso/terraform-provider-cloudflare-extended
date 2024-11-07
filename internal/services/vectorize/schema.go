@@ -58,7 +58,7 @@ func ResourceSchema(ctx context.Context) schema.Schema {
 				MarkdownDescription: `Distance metric to use for calculating vector similarity. One of "cosine", "dot-product", or "euclidean"`,
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 				Validators: []validator.String{
-					stringvalidator.OneOf([]string{"cosine", "dot-product", "euclidean"}...),
+					stringvalidator.OneOf("cosine", "dot-product", "euclidean"),
 				},
 			},
 			"created_on": schema.StringAttribute{
