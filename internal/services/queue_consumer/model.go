@@ -13,13 +13,14 @@ type QueueConsumerResultEnvelope struct {
 type QueueConsumerModel struct {
 	AccountID       types.String                                         `tfsdk:"account_id" path:"account_id,required"`
 	QueueID         types.String                                         `tfsdk:"queue_id" path:"queue_id,required"`
-	ConsumerID      types.String                                         `tfsdk:"consumer_id" path:"consumer_id,optional"`
+	ScriptName      types.String                                         `tfsdk:"script_name" json:"script_name,optional"`
+	ConsumerID      types.String                                         `tfsdk:"consumer_id" json:"consumer_id,computed"`
 	CreatedOn       types.String                                         `tfsdk:"created_on" json:"created_on,computed"`
-	DeadLetterQueue types.String                                         `tfsdk:"dead_letter_queue" json:"dead_letter_queue,computed"`
-	Environment     types.String                                         `tfsdk:"environment" json:"environment,computed"`
+	DeadLetterQueue types.String                                         `tfsdk:"dead_letter_queue" json:"dead_letter_queue,optional"`
+	Environment     types.String                                         `tfsdk:"environment" json:"environment,computed_optional"`
 	QueueName       types.String                                         `tfsdk:"queue_name" json:"queue_name,computed"`
-	ScriptName      types.String                                         `tfsdk:"script_name" json:"script_name,computed"`
-	Settings        customfield.NestedObject[QueueConsumerSettingsModel] `tfsdk:"settings" json:"settings,computed"`
+	Settings        customfield.NestedObject[QueueConsumerSettingsModel] `tfsdk:"settings" json:"settings,computed_optional"`
+	Type            types.String                                         `tfsdk:"type" json:"type,required"`
 }
 
 func (m QueueConsumerModel) MarshalJSON() (data []byte, err error) {
@@ -31,7 +32,7 @@ func (m QueueConsumerModel) MarshalJSONForUpdate(state QueueConsumerModel) (data
 }
 
 type QueueConsumerSettingsModel struct {
-	BatchSize     types.Float64 `tfsdk:"batch_size" json:"batch_size,computed"`
-	MaxRetries    types.Float64 `tfsdk:"max_retries" json:"max_retries,computed"`
-	MaxWaitTimeMs types.Float64 `tfsdk:"max_wait_time_ms" json:"max_wait_time_ms,computed"`
+	BatchSize     types.Float64 `tfsdk:"batch_size" json:"batch_size,computed_optional"`
+	MaxRetries    types.Float64 `tfsdk:"max_retries" json:"max_retries,computed_optional"`
+	MaxWaitTimeMs types.Float64 `tfsdk:"max_wait_time_ms" json:"max_wait_time_ms,computed_optional"`
 }

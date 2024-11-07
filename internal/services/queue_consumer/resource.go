@@ -10,7 +10,9 @@ import (
 	"github.com/cloudflare/cloudflare-go/v3/option"
 	"github.com/cloudflare/cloudflare-go/v3/queues"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/apijson"
+	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/customfield"
 	"github.com/jasonpanosso/terraform-provider-cloudflare-extended/internal/logging"
 )
 
@@ -86,24 +88,25 @@ func (r *QueueConsumerResource) Create(ctx context.Context, req resource.CreateR
 		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
 		return
 	}
-	data = &env.Result
+	data.ConsumerID = env.Result.ConsumerID
+	data.Type = env.Result.Type
+	data.Settings = env.Result.Settings
+	data.QueueName = env.Result.QueueName
+	data.CreatedOn = env.Result.CreatedOn
+	data.Environment = env.Result.Environment
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *QueueConsumerResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data *QueueConsumerModel
-
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	var state *QueueConsumerModel
-
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -150,28 +153,44 @@ func (r *QueueConsumerResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	res := new(http.Response)
-	env := QueueConsumerResultEnvelope{*data}
-	_, err := r.client.Queues.Consumers.Get(
+	consumers, err := r.client.Queues.Consumers.Get(
 		ctx,
 		data.QueueID.ValueString(),
 		queues.ConsumerGetParams{
 			AccountID: cloudflare.F(data.AccountID.ValueString()),
 		},
-		option.WithResponseBodyInto(&res),
 		option.WithMiddleware(logging.Middleware(ctx)),
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("failed to make http request", err.Error())
 		return
 	}
-	bytes, _ := io.ReadAll(res.Body)
-	err = apijson.UnmarshalComputed(bytes, &env)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to deserialize http request", err.Error())
+	if consumers == nil {
+		req.State.RemoveResource(ctx)
 		return
 	}
-	data = &env.Result
+
+	found := false
+	for _, consumer := range *consumers {
+		if consumer.Service == data.ScriptName.ValueString() {
+			found = true
+			data.CreatedOn = basetypes.NewStringValue(consumer.CreatedOn)
+			data.Environment = basetypes.NewStringValue(consumer.Environment)
+			data.QueueName = basetypes.NewStringValue(consumer.QueueName)
+			data.Settings = customfield.NewObjectMust(
+				ctx,
+				&QueueConsumerSettingsModel{
+					BatchSize:     basetypes.NewFloat64Value(consumer.Settings.BatchSize),
+					MaxRetries:    basetypes.NewFloat64Value(consumer.Settings.MaxRetries),
+					MaxWaitTimeMs: basetypes.NewFloat64Value(consumer.Settings.MaxWaitTimeMs),
+				})
+		}
+	}
+
+	if !found {
+		req.State.RemoveResource(ctx)
+		return
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

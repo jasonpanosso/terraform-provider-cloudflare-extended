@@ -19,24 +19,25 @@ description: |-
 
 - `account_id` (String) Identifier.
 - `queue_id` (String) Identifier.
+- `type` (String) Type of queue consumer. One of "worker", or "http_pull"
 
 ### Optional
 
-- `consumer_id` (String) Identifier.
+- `dead_letter_queue` (String)
+- `environment` (String)
+- `script_name` (String)
+- `settings` (Attributes) (see [below for nested schema](#nestedatt--settings))
 
 ### Read-Only
 
+- `consumer_id` (String) Identifier.
 - `created_on` (String)
-- `dead_letter_queue` (String)
-- `environment` (String)
 - `queue_name` (String)
-- `script_name` (String)
-- `settings` (Attributes) (see [below for nested schema](#nestedatt--settings))
 
 <a id="nestedatt--settings"></a>
 ### Nested Schema for `settings`
 
-Read-Only:
+Optional:
 
 - `batch_size` (Number)
 - `max_retries` (Number) The maximum number of retries
