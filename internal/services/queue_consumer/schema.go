@@ -28,9 +28,8 @@ func ResourceSchema(ctx context.Context) schema.Schema {
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"consumer_id": schema.StringAttribute{
-				Description:   "Identifier.",
-				Computed:      true,
-				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+				Description: "Identifier.",
+				Computed:    true,
 			},
 			"type": schema.StringAttribute{
 				Description: `Type of queue consumer. One of "worker", or "http_pull"`,
